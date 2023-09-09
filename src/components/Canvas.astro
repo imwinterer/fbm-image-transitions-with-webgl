@@ -1,0 +1,142 @@
+<script>
+	import * as THREE from 'three';
+	import gsap from 'gsap';
+
+	const vert = `
+		varying vec2 vUv;
+		void main(){	
+			vUv = uv;
+			gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+		}
+	`
+	const frag = `
+		varying vec2 vUv;
+
+		uniform vec2 uResolution;
+		uniform sampler2D uTexture;
+		uniform vec2 uTextureResolution;
+		uniform sampler2D uFbm;
+		uniform float uProgress;
+
+		mat2 scale(vec2 _scale){
+			return mat2(_scale.x, 0.0, 0.0, _scale.y);
+		}
+
+		void main(){
+			vec2 ratio = vec2(
+				min((uResolution.x / uResolution.y) / (uTextureResolution.x / uTextureResolution.y), 1.0),
+				min((uResolution.y / uResolution.x) / (uTextureResolution.y / uTextureResolution.x), 1.0)
+			);
+			vec2 uv = vec2(
+				vUv.x * ratio.x + (1.0 - ratio.x) * 0.5,
+				vUv.y * ratio.y + (1.0 - ratio.y) * 0.5
+			);
+
+			vec2 st = uv;
+			st -= vec2(0.5);
+			st = scale(vec2(0.8 + (uProgress * 0.2))) * st;
+			st += vec2(0.5);
+			
+			vec4 img = texture2D(uTexture, st);
+			vec4 transparent = vec4(0.0, 0.0, 0.0, 0.0);
+			vec4 fbm = texture2D(uFbm, uv);
+
+			float percentage = smoothstep(0.0, fbm.r, uProgress);
+
+			vec4 color = mix(transparent, img, percentage);
+			
+			gl_FragColor = color;
+		}
+	`
+
+  class canvas{
+		constructor(){
+
+			this.windowWidth = window.innerWidth;
+			this.windowHeight = window.innerHeight;
+
+			this.scene = new THREE.Scene();
+
+			this.renderer = new THREE.WebGLRenderer({ alpha: true });
+			this.renderer.setSize(this.windowWidth, this.windowHeight)
+			this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+
+			this.loadingManager = new THREE.LoadingManager();
+			this.textureLoader = new THREE.TextureLoader(this.loadingManager);
+
+			this.img = this.textureLoader.load('/fbm-image-transitions-with-webgl/img.jpg');
+			this.fbm = this.textureLoader.load('/fbm-image-transitions-with-webgl/fbm.jpg');
+
+			this.aspect = 1080 / 1920;
+
+			this.loadingManager.onLoad = () => {
+				document.body.appendChild(this.renderer.domElement);
+
+				this.fov = 60;
+				this.fovRad = (this.fov / 2) * (Math.PI / 180);
+				this.dist = (this.windowHeight / 2) / Math.tan(this.fovRad);
+				this.camera = new THREE.PerspectiveCamera(this.fov, this.windowWidth / this.windowHeight, 1, this.dist * 2);
+				this.camera.position.z = this.dist;
+
+				this.light = new THREE.AmbientLight(0x00ffff, 1);
+				this.scene.add(this.light);
+
+				this.geometry = new THREE.PlaneGeometry(1, 1);
+				this.material = new THREE.ShaderMaterial( {
+					vertexShader: vert,
+					fragmentShader: frag,
+					uniforms: {
+						uResolution: { value: new THREE.Vector2(this.windowWidth, this.windowHeight), },
+						uTexture: { value: this.img },
+						uTextureResolution: { value: new THREE.Vector2(1920, 1080) },
+						uFbm: { value: this.fbm },
+						uProgress: { value: 0 },
+					}
+				});
+				this.mesh = new THREE.Mesh(this.geometry, this.material);
+				this.scene.add(this.mesh);
+				this.mesh.scale.x = this.windowWidth;
+				this.mesh.scale.y = this.windowHeight;
+
+				this.renderer.render(this.scene, this.camera);
+
+				this.resize();
+
+				this.render();
+
+				gsap.to(this.material.uniforms.uProgress, {
+					value: 1,
+					duration: 2,
+					delay: 1,
+					ease: 'power1.inOut',
+				});
+			}
+		}
+
+		resize() {
+			window.addEventListener('resize', () => {
+				this.windowWidth = window.innerWidth;
+				this.windowHeight = window.innerHeight;
+
+				this.material.uniforms.uResolution.value = new THREE.Vector2(this.windowWidth, this.windowHeight);
+				this.mesh.scale.x = this.windowWidth;
+				this.mesh.scale.y = this.windowHeight;
+
+				this.camera.aspect = this.windowWidth / this.windowHeight;
+				this.dist = (this.windowHeight / 2) / Math.tan(this.fovRad);
+				this.camera.updateProjectionMatrix();
+				this.camera.position.z = this.dist;
+				
+				this.renderer.setSize(this.windowWidth, this.windowHeight);
+				this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+			});
+		}
+
+		render() {
+			requestAnimationFrame(() => { this.render(); });
+
+			this.renderer.render(this.scene, this.camera);
+		}
+	}
+	new canvas();
+</script>
